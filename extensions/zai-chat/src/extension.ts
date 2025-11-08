@@ -38,8 +38,8 @@ const ZAI_MODELS: ZAIModel[] = [
 ];
 
 interface OpenAIMessage {
-	role: 'system' | 'user' | 'assistant';
-	content: string | Array<{ type: string; text?: string; tool_call_id?: string;[key: string]: any }>;
+	role: 'system' | 'user' | 'assistant' | 'tool';
+	content: string | null;
 	tool_calls?: Array<{
 		id: string;
 		type: 'function';
@@ -48,6 +48,7 @@ interface OpenAIMessage {
 			arguments: string;
 		};
 	}>;
+	tool_call_id?: string; // For role: "tool" messages
 }
 
 interface OpenAITool {
@@ -149,16 +150,16 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		}
 
 		// Convert VSCode messages to OpenAI format
-		const openAIMessages: OpenAIMessage[] = messages.map(msg => {
-			const message: OpenAIMessage = {
-				role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
-					msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
-				content: ''
-			};
+		// Note: Tool results need to become separate messages with role: "tool"
+		const openAIMessages: OpenAIMessage[] = [];
+
+		for (const msg of messages) {
+			const role = msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
+				msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system';
 
 			// Handle different content types
 			const toolCallParts: any[] = [];
-			const toolResultParts: any[] = [];
+			const toolResultParts: Array<{ callId: string; content: string }> = [];
 			let textContent = '';
 
 			for (const part of msg.content) {
@@ -183,25 +184,36 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 						.map(c => (c as vscode.LanguageModelTextPart).value)
 						.join('');
 					toolResultParts.push({
-						type: 'tool_result',
-						tool_call_id: toolResultPart.callId,
-						text: resultText
+						callId: toolResultPart.callId,
+						content: resultText
 					});
 				}
 			}
 
-			// Set message content based on what we found
+			// Add the main message if it has tool calls or text content
 			if (toolCallParts.length > 0) {
-				message.tool_calls = toolCallParts;
-				message.content = textContent || ''; // Assistant messages with tool calls may have empty content
-			} else if (toolResultParts.length > 0) {
-				message.content = toolResultParts;
-			} else {
-				message.content = textContent;
+				openAIMessages.push({
+					role: 'assistant',
+					content: textContent || null,
+					tool_calls: toolCallParts
+				});
+			} else if (toolResultParts.length === 0 && textContent) {
+				// Regular text message (no tool results)
+				openAIMessages.push({
+					role: role,
+					content: textContent
+				});
 			}
 
-			return message;
-		});
+			// Add tool result messages (each becomes a separate message with role: "tool")
+			for (const toolResult of toolResultParts) {
+				openAIMessages.push({
+					role: 'tool',
+					tool_call_id: toolResult.callId,
+					content: toolResult.content
+				});
+			}
+		}
 
 		// Convert tools if provided in options
 		const tools: OpenAITool[] | undefined = _options.tools?.map(tool => ({
