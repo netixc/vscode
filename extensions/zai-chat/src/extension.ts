@@ -347,21 +347,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 					if (line.startsWith('data: ')) {
 						const data = line.slice(6).trim();
 						if (data === '[DONE]') {
-							// Report accumulated tool calls
-							for (const [_, toolCall] of toolCallsMap) {
-								if (toolCall.id && toolCall.name && toolCall.arguments) {
-									try {
-										const args = JSON.parse(toolCall.arguments);
-										progress.report(new vscode.LanguageModelToolCallPart(
-											toolCall.id,
-											toolCall.name,
-											args
-										));
-									} catch (e) {
-										console.error('Error parsing tool call arguments:', e);
-									}
-								}
-							}
+							// Stream is done, tool calls will be reported after the loop
 							continue;
 						}
 
@@ -456,7 +442,11 @@ export function activate(context: vscode.ExtensionContext) {
 		try {
 			// Tool calling loop - continue until the model stops requesting tools
 			let maxTurns = 10; // Prevent infinite loops
+			let turnCount = 0;
 			while (maxTurns-- > 0 && !token.isCancellationRequested) {
+				turnCount++;
+				console.log(`[Z.AI Chat] Tool calling turn ${turnCount}`);
+
 				const chatResponse = await model.sendRequest(messages, {
 					tools: availableTools,
 					toolMode: vscode.LanguageModelChatToolMode.Auto
@@ -474,6 +464,7 @@ export function activate(context: vscode.ExtensionContext) {
 					} else if (part instanceof vscode.LanguageModelToolCallPart) {
 						hasToolCalls = true;
 						toolCalls.push(part);
+						console.log(`[Z.AI Chat] Tool call requested: ${part.name} with input:`, part.input);
 						// Show tool invocation in the UI
 						response.progress(`Calling tool: ${part.name}`);
 					}
@@ -481,6 +472,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 				// If no tool calls, we're done
 				if (!hasToolCalls) {
+					console.log(`[Z.AI Chat] No more tool calls, finishing after ${turnCount} turns`);
 					break;
 				}
 
