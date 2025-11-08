@@ -39,7 +39,24 @@ const ZAI_MODELS: ZAIModel[] = [
 
 interface OpenAIMessage {
 	role: 'system' | 'user' | 'assistant';
-	content: string;
+	content: string | Array<{ type: string; text?: string; tool_call_id?: string;[key: string]: any }>;
+	tool_calls?: Array<{
+		id: string;
+		type: 'function';
+		function: {
+			name: string;
+			arguments: string;
+		};
+	}>;
+}
+
+interface OpenAITool {
+	type: 'function';
+	function: {
+		name: string;
+		description: string;
+		parameters: object;
+	};
 }
 
 interface OpenAIRequest {
@@ -48,8 +65,12 @@ interface OpenAIRequest {
 	stream: boolean;
 	temperature?: number;
 	max_tokens?: number;
-	thinking?: {
-		type: 'enabled' | 'disabled';
+	tools?: OpenAITool[];
+	tool_choice?: 'auto' | 'none' | 'required';
+	extra_body?: {
+		thinking?: {
+			type: 'enabled' | 'disabled';
+		};
 	};
 }
 
@@ -64,6 +85,15 @@ interface OpenAIStreamChunk {
 			role?: string;
 			content?: string;
 			reasoning_content?: string;
+			tool_calls?: Array<{
+				index?: number;
+				id?: string;
+				type?: 'function';
+				function?: {
+					name?: string;
+					arguments?: string;
+				};
+			}>;
 		};
 		finish_reason: string | null;
 	}>;
@@ -119,15 +149,68 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		}
 
 		// Convert VSCode messages to OpenAI format
-		const openAIMessages: OpenAIMessage[] = messages.map(msg => ({
-			role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
-				msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
-			content: msg.content.map((part: unknown) => {
+		const openAIMessages: OpenAIMessage[] = messages.map(msg => {
+			const message: OpenAIMessage = {
+				role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
+					msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
+				content: ''
+			};
+
+			// Handle different content types
+			const toolCallParts: any[] = [];
+			const toolResultParts: any[] = [];
+			let textContent = '';
+
+			for (const part of msg.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
-					return part.value;
+					textContent += part.value;
+				} else if (typeof part === 'object' && part !== null && 'callId' in part && 'name' in part && 'input' in part) {
+					// Tool call part
+					const toolCallPart = part as { callId: string; name: string; input: object };
+					toolCallParts.push({
+						id: toolCallPart.callId,
+						type: 'function',
+						function: {
+							name: toolCallPart.name,
+							arguments: JSON.stringify(toolCallPart.input)
+						}
+					});
+				} else if (typeof part === 'object' && part !== null && 'callId' in part && 'content' in part) {
+					// Tool result part
+					const toolResultPart = part as { callId: string; content: unknown[] };
+					const resultText = toolResultPart.content
+						.filter(c => c instanceof vscode.LanguageModelTextPart)
+						.map(c => (c as vscode.LanguageModelTextPart).value)
+						.join('');
+					toolResultParts.push({
+						type: 'tool_result',
+						tool_call_id: toolResultPart.callId,
+						text: resultText
+					});
 				}
-				return '';
-			}).join('')
+			}
+
+			// Set message content based on what we found
+			if (toolCallParts.length > 0) {
+				message.tool_calls = toolCallParts;
+				message.content = textContent || ''; // Assistant messages with tool calls may have empty content
+			} else if (toolResultParts.length > 0) {
+				message.content = toolResultParts;
+			} else {
+				message.content = textContent;
+			}
+
+			return message;
+		});
+
+		// Convert tools if provided in options
+		const tools: OpenAITool[] | undefined = _options.tools?.map(tool => ({
+			type: 'function',
+			function: {
+				name: tool.name,
+				description: tool.description,
+				parameters: tool.inputSchema ?? {}
+			}
 		}));
 
 		const requestBody: OpenAIRequest = {
@@ -135,8 +218,12 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			messages: openAIMessages,
 			stream: true,
 			temperature: 0.6,
-			thinking: {
-				type: thinkingEnabled ? 'enabled' : 'disabled'
+			tools: tools,
+			tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
+			extra_body: {
+				thinking: {
+					type: thinkingEnabled ? 'enabled' : 'disabled'
+				}
 			}
 		};
 
@@ -225,6 +312,9 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		const decoder = new TextDecoder();
 		let buffer = '';
 
+		// Accumulate tool calls across chunks
+		const toolCallsMap = new Map<number, { id?: string; name?: string; arguments: string }>();
+
 		try {
 			while (true) {
 				if (token.isCancellationRequested) {
@@ -245,6 +335,21 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 					if (line.startsWith('data: ')) {
 						const data = line.slice(6).trim();
 						if (data === '[DONE]') {
+							// Report accumulated tool calls
+							for (const [_, toolCall] of toolCallsMap) {
+								if (toolCall.id && toolCall.name && toolCall.arguments) {
+									try {
+										const args = JSON.parse(toolCall.arguments);
+										progress.report(new vscode.LanguageModelToolCallPart(
+											toolCall.id,
+											toolCall.name,
+											args
+										));
+									} catch (e) {
+										console.error('Error parsing tool call arguments:', e);
+									}
+								}
+							}
 							continue;
 						}
 
@@ -260,9 +365,46 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 							if (delta?.reasoning_content && this.thinkingEnabled) {
 								progress.report(new vscode.LanguageModelTextPart(delta.reasoning_content));
 							}
+
+							// Handle tool calls - they come in chunks
+							if (delta?.tool_calls) {
+								for (const toolCallDelta of delta.tool_calls) {
+									const index = toolCallDelta.index ?? 0;
+									if (!toolCallsMap.has(index)) {
+										toolCallsMap.set(index, { arguments: '' });
+									}
+									const toolCall = toolCallsMap.get(index)!;
+
+									if (toolCallDelta.id) {
+										toolCall.id = toolCallDelta.id;
+									}
+									if (toolCallDelta.function?.name) {
+										toolCall.name = toolCallDelta.function.name;
+									}
+									if (toolCallDelta.function?.arguments) {
+										toolCall.arguments += toolCallDelta.function.arguments;
+									}
+								}
+							}
 						} catch (parseError) {
 							console.error('Error parsing SSE chunk:', parseError);
 						}
+					}
+				}
+			}
+
+			// Report any remaining tool calls
+			for (const [_, toolCall] of toolCallsMap) {
+				if (toolCall.id && toolCall.name && toolCall.arguments) {
+					try {
+						const args = JSON.parse(toolCall.arguments);
+						progress.report(new vscode.LanguageModelToolCallPart(
+							toolCall.id,
+							toolCall.name,
+							args
+						));
+					} catch (e) {
+						console.error('Error parsing tool call arguments:', e);
 					}
 				}
 			}
@@ -278,9 +420,8 @@ export function activate(context: vscode.ExtensionContext) {
 	const disposable = vscode.lm.registerLanguageModelChatProvider('zai', provider);
 	context.subscriptions.push(disposable);
 
-	// Register chat participant
+	// Register chat participant with tool support
 	const participant = vscode.chat.createChatParticipant('zai.chat', async (request, _context, response, token) => {
-		// Simple pass-through participant that uses the language model
 		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
 
 		if (models.length === 0) {
@@ -289,13 +430,72 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		const model = models[0];
-		const messages = [vscode.LanguageModelChatMessage.User(request.prompt)];
+		const messages: vscode.LanguageModelChatMessage[] = [
+			vscode.LanguageModelChatMessage.User(request.prompt)
+		];
+
+		// Get all available tools from VS Code
+		const availableTools = vscode.lm.tools.map(tool => ({
+			name: tool.name,
+			description: tool.description,
+			inputSchema: tool.inputSchema ?? {}
+		}));
 
 		try {
-			const chatResponse = await model.sendRequest(messages, {}, token);
+			// Tool calling loop - continue until the model stops requesting tools
+			let maxTurns = 10; // Prevent infinite loops
+			while (maxTurns-- > 0 && !token.isCancellationRequested) {
+				const chatResponse = await model.sendRequest(messages, {
+					tools: availableTools,
+					toolMode: vscode.LanguageModelChatToolMode.Auto
+				}, token);
 
-			for await (const fragment of chatResponse.text) {
-				response.markdown(fragment);
+				let hasToolCalls = false;
+				const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+				let assistantContent = '';
+
+				// Process the response stream
+				for await (const part of chatResponse.stream) {
+					if (part instanceof vscode.LanguageModelTextPart) {
+						assistantContent += part.value;
+						response.markdown(part.value);
+					} else if (part instanceof vscode.LanguageModelToolCallPart) {
+						hasToolCalls = true;
+						toolCalls.push(part);
+						// Show tool invocation in the UI
+						response.progress(`Calling tool: ${part.name}`);
+					}
+				}
+
+				// If no tool calls, we're done
+				if (!hasToolCalls) {
+					break;
+				}
+
+				// Add assistant's response with tool calls to conversation history
+				messages.push(vscode.LanguageModelChatMessage.Assistant(toolCalls));
+
+				// Execute tool calls and collect results
+				const toolResults: vscode.LanguageModelToolResultPart[] = [];
+				for (const toolCall of toolCalls) {
+					try {
+						const result = await vscode.lm.invokeTool(toolCall.name, {
+							input: toolCall.input,
+							toolInvocationToken: request.toolInvocationToken
+						}, token);
+
+						toolResults.push(new vscode.LanguageModelToolResultPart(toolCall.callId, result.content));
+					} catch (error) {
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						toolResults.push(new vscode.LanguageModelToolResultPart(
+							toolCall.callId,
+							[new vscode.LanguageModelTextPart(`Error: ${errorMessage}`)]
+						));
+					}
+				}
+
+				// Add tool results to conversation as a user message
+				messages.push(vscode.LanguageModelChatMessage.User(toolResults));
 			}
 
 			return {};
