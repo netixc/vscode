@@ -67,6 +67,12 @@
           "default": 3,
           "description": "Maximum number of retries for failed requests",
           "scope": "application"
+        },
+        "zai.thinking.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable thinking mode for Z.AI models (GLM-4.6, GLM-4.5, GLM-4.5 Air). When enabled, models will show their reasoning process.",
+          "scope": "application"
         }
       }
     }

@@ -48,6 +48,11 @@ interface OpenAIRequest {
 	stream: boolean;
 	temperature?: number;
 	max_tokens?: number;
+	extra_body?: {
+		thinking?: {
+			type: 'enabled' | 'disabled';
+		};
+	};
 }
 
 interface OpenAIStreamChunk {
@@ -103,6 +108,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		const apiKey = this.config.get<string>('apiKey');
 		const baseUrl = this.config.get<string>('baseUrl', 'https://api.z.ai/api/coding/paas/v4/');
 		const timeout = this.config.get<number>('timeout', 30000);
+		const thinkingEnabled = this.config.get<boolean>('thinking.enabled', false);
 
 		if (!apiKey) {
 			throw new Error('Z.AI API key not configured. Please set zai.apiKey in settings.');
@@ -124,7 +130,12 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			model: model.id,
 			messages: openAIMessages,
 			stream: true,
-			temperature: 0.6
+			temperature: 0.6,
+			extra_body: {
+				thinking: {
+					type: thinkingEnabled ? 'enabled' : 'disabled'
+				}
+			}
 		};
 
 		try {
