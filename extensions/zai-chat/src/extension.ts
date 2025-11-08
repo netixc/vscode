@@ -74,7 +74,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 	}
 
 	async provideLanguageModelChatInformation(
-		_options: { silent: boolean },
+		_options: vscode.PrepareLanguageModelChatModelOptions,
 		_token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]> {
 		return ZAI_MODELS.map(model => ({
@@ -85,16 +85,16 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			maxInputTokens: model.maxInputTokens,
 			maxOutputTokens: model.maxOutputTokens,
 			capabilities: {
-				supportsToolCalling: true,
-				supportsImageToText: false
+				toolCalling: true,
+				imageInput: false
 			}
 		}));
 	}
 
 	async provideLanguageModelChatResponse(
-		modelId: string,
-		messages: vscode.LanguageModelChatMessage[],
-		_options: { [name: string]: any },
+		model: vscode.LanguageModelChatInformation,
+		messages: readonly vscode.LanguageModelChatRequestMessage[],
+		_options: vscode.ProvideLanguageModelChatResponseOptions,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
@@ -110,17 +110,16 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		const openAIMessages: OpenAIMessage[] = messages.map(msg => ({
 			role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
 				  msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
-			content: typeof msg.content === 'string' ? msg.content :
-					 msg.content.map((part: vscode.LanguageModelChatMessagePart) => {
-						 if (part instanceof vscode.LanguageModelTextPart) {
-							 return part.value;
-						 }
-						 return '';
-					 }).join('')
+			content: msg.content.map((part: unknown) => {
+				if (part instanceof vscode.LanguageModelTextPart) {
+					return part.value;
+				}
+				return '';
+			}).join('')
 		}));
 
 		const requestBody: OpenAIRequest = {
-			model: modelId,
+			model: model.id,
 			messages: openAIMessages,
 			stream: true,
 			temperature: 0.6
@@ -160,14 +159,13 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 	}
 
 	async provideTokenCount(
-		_modelId: string,
-		text: string | vscode.LanguageModelChatMessage,
+		_model: vscode.LanguageModelChatInformation,
+		text: string | vscode.LanguageModelChatRequestMessage,
 		_token: vscode.CancellationToken
 	): Promise<number> {
 		// Rough token estimation (1 token ≈ 4 characters for English)
 		const content = typeof text === 'string' ? text :
-						typeof text.content === 'string' ? text.content :
-						text.content.map((part: vscode.LanguageModelChatMessagePart) => {
+						text.content.map((part: unknown) => {
 							if (part instanceof vscode.LanguageModelTextPart) {
 								return part.value;
 							}
