@@ -6,7 +6,8 @@
   "license": "MIT",
   "enabledApiProposals": [
     "chatProvider",
-    "languageModelCapabilities"
+    "languageModelCapabilities",
+    "defaultChatParticipant"
   ],
   "private": true,
   "activationEvents": [],
@@ -19,6 +20,17 @@
       {
         "vendor": "zai",
         "displayName": "Z.AI"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "zai.chat",
+        "name": "chat",
+        "fullName": "Z.AI Chat",
+        "description": "AI assistant powered by Z.AI GLM models",
+        "isDefault": true,
+        "isSticky": false,
+        "modes": ["ask", "edit", "agent"]
       }
     ],
     "configuration": {

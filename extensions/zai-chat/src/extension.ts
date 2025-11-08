@@ -265,6 +265,35 @@ export function activate(context: vscode.ExtensionContext) {
 	const disposable = vscode.lm.registerLanguageModelChatProvider('zai', provider);
 	context.subscriptions.push(disposable);
 
+	// Register chat participant
+	const participant = vscode.chat.createChatParticipant('zai.chat', async (request, context, response, token) => {
+		// Simple pass-through participant that uses the language model
+		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
+
+		if (models.length === 0) {
+			response.markdown('No Z.AI models available. Please check your API key configuration.');
+			return {};
+		}
+
+		const model = models[0];
+		const messages = [vscode.LanguageModelChatMessage.User(request.prompt)];
+
+		try {
+			const chatResponse = await model.sendRequest(messages, {}, token);
+
+			for await (const fragment of chatResponse.text) {
+				response.markdown(fragment);
+			}
+
+			return {};
+		} catch (error) {
+			response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			return {};
+		}
+	});
+
+	context.subscriptions.push(participant);
+
 	// Register a command to set API key
 	const setApiKeyCommand = vscode.commands.registerCommand('zai.setApiKey', async () => {
 		const apiKey = await vscode.window.showInputBox({
