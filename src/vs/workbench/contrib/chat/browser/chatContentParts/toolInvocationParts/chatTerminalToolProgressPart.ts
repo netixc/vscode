@@ -171,6 +171,10 @@ export class ChatTerminalToolProgressPart extends BaseChatToolInvocationSubPart 
 			return;
 		}
 
+		if (this._store.isDisposed) {
+			return;
+		}
+
 		this._actionBar.value = new ActionBar(elements.actionBar, {});
 
 		const attachInstance = async (instance: ITerminalInstance | undefined) => {
