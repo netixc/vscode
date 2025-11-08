@@ -71,7 +71,7 @@
         "zai.thinking.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable thinking mode for Z.AI models (GLM-4.6, GLM-4.5, GLM-4.5 Air). When enabled, models will show their reasoning process.",
+          "description": "Show model reasoning process (thinking) in chat responses",
           "scope": "application"
         }
       }

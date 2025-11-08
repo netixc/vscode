@@ -70,6 +70,7 @@ interface OpenAIStreamChunk {
 }
 
 class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
+	private thinkingEnabled: boolean = false;
 
 	constructor() {
 		// No need to cache config - get fresh each time
@@ -109,6 +110,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		const baseUrl = config.get<string>('baseUrl', 'https://api.z.ai/api/coding/paas/v4/');
 		const timeout = config.get<number>('timeout', 30000);
 		const thinkingEnabled = config.get<boolean>('thinking.enabled', false);
+		this.thinkingEnabled = thinkingEnabled;
 
 		console.log('[Z.AI] thinkingEnabled:', thinkingEnabled);
 
@@ -119,7 +121,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		// Convert VSCode messages to OpenAI format
 		const openAIMessages: OpenAIMessage[] = messages.map(msg => ({
 			role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
-				  msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
+				msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
 			content: msg.content.map((part: unknown) => {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					return part.value;
@@ -176,14 +178,14 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		text: string | vscode.LanguageModelChatRequestMessage,
 		_token: vscode.CancellationToken
 	): Promise<number> {
-		// Rough token estimation (1 token ≈ 4 characters for English)
+		// Rough token estimation (1 token ~ 4 characters for English)
 		const content = typeof text === 'string' ? text :
-						text.content.map((part: unknown) => {
-							if (part instanceof vscode.LanguageModelTextPart) {
-								return part.value;
-							}
-							return '';
-						}).join('');
+			text.content.map((part: unknown) => {
+				if (part instanceof vscode.LanguageModelTextPart) {
+					return part.value;
+				}
+				return '';
+			}).join('');
 
 		return Math.ceil(content.length / 4);
 	}
@@ -254,8 +256,8 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 								progress.report(new vscode.LanguageModelTextPart(delta.content));
 							}
 
-							// Handle thinking/reasoning content if present
-							if (delta?.reasoning_content) {
+							// Handle thinking/reasoning content only if thinking mode is enabled
+							if (delta?.reasoning_content && this.thinkingEnabled) {
 								progress.report(new vscode.LanguageModelTextPart(delta.reasoning_content));
 							}
 						} catch (parseError) {
