@@ -441,17 +441,13 @@ export function activate(context: vscode.ExtensionContext) {
 
 		try {
 			// Tool calling loop - continue until the model stops requesting tools
-			const maxTurns = 30; // Increased limit for complex tasks
 			let turnCount = 0;
-			while (turnCount < maxTurns && !token.isCancellationRequested) {
+			while (!token.isCancellationRequested) {
 				turnCount++;
-				console.log(`[Z.AI Chat] Tool calling turn ${turnCount}/${maxTurns}`);
-
-				// If approaching limit, stop providing tools to force final response
-				const shouldProvidTools = turnCount < maxTurns - 1;
+				console.log(`[Z.AI Chat] Tool calling turn ${turnCount}`);
 
 				const chatResponse = await model.sendRequest(messages, {
-					tools: shouldProvidTools ? availableTools : [],
+					tools: availableTools,
 					toolMode: vscode.LanguageModelChatToolMode.Auto
 				}, token);
 
@@ -503,12 +499,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 				// Add tool results to conversation as a user message
 				messages.push(vscode.LanguageModelChatMessage.User(toolResults));
-			}
-
-			// Log if we hit the max turns limit
-			if (turnCount >= maxTurns) {
-				console.log(`[Z.AI Chat] Reached maximum turn limit (${maxTurns}), stopping tool calls`);
-				response.markdown(`\n\n_Note: Reached maximum tool calling limit (${maxTurns} turns). Response may be incomplete._`);
 			}
 
 			return {};
