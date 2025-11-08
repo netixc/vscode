@@ -102,12 +102,15 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
+		console.log('[Z.AI] provideLanguageModelChatResponse called');
 		// Get fresh config each time to pick up setting changes
 		const config = vscode.workspace.getConfiguration('zai');
 		const apiKey = config.get<string>('apiKey');
 		const baseUrl = config.get<string>('baseUrl', 'https://api.z.ai/api/coding/paas/v4/');
 		const timeout = config.get<number>('timeout', 30000);
 		const thinkingEnabled = config.get<boolean>('thinking.enabled', false);
+
+		console.log('[Z.AI] thinkingEnabled:', thinkingEnabled);
 
 		if (!apiKey) {
 			throw new Error('Z.AI API key not configured. Please set zai.apiKey in settings.');
