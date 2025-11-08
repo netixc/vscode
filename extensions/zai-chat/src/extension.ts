@@ -48,10 +48,8 @@ interface OpenAIRequest {
 	stream: boolean;
 	temperature?: number;
 	max_tokens?: number;
-	extra_body?: {
-		thinking?: {
-			type: 'enabled' | 'disabled';
-		};
+	thinking?: {
+		type: 'enabled' | 'disabled';
 	};
 }
 
@@ -131,10 +129,8 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			messages: openAIMessages,
 			stream: true,
 			temperature: 0.6,
-			extra_body: {
-				thinking: {
-					type: thinkingEnabled ? 'enabled' : 'disabled'
-				}
+			thinking: {
+				type: thinkingEnabled ? 'enabled' : 'disabled'
 			}
 		};
 
