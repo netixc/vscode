@@ -166,12 +166,12 @@ export class ChatTerminalToolProgressPart extends BaseChatToolInvocationSubPart 
 	}
 
 	private async _createActionBar(elements: { actionBar: HTMLElement }): Promise<void> {
-		this._actionBar.value = new ActionBar(elements.actionBar, {});
-
 		const terminalToolSessionId = this._terminalData.terminalToolSessionId;
 		if (!terminalToolSessionId) {
 			return;
 		}
+
+		this._actionBar.value = new ActionBar(elements.actionBar, {});
 
 		const attachInstance = async (instance: ITerminalInstance | undefined) => {
 			if (!instance || this._terminalInstance === instance || this._store.isDisposed) {
