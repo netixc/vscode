@@ -257,8 +257,8 @@ export class ChatModelsViewModel extends EditorModel {
 
 	getVendors(): IUserFriendlyLanguageModel[] {
 		return [...this.languageModelsService.getVendors()].sort((a, b) => {
-			if (a.vendor === 'copilot') { return -1; }
-			if (b.vendor === 'copilot') { return 1; }
+			if (a.vendor === 'zai') { return -1; }
+			if (b.vendor === 'zai') { return 1; }
 			return a.displayName.localeCompare(b.displayName);
 		});
 	}
@@ -267,13 +267,13 @@ export class ChatModelsViewModel extends EditorModel {
 		this.modelEntries = [];
 
 		for (const vendor of this.getVendors()) {
-			const modelIdentifiers = await this.languageModelsService.selectLanguageModels({ vendor: vendor.vendor }, vendor.vendor === 'copilot');
+			const modelIdentifiers = await this.languageModelsService.selectLanguageModels({ vendor: vendor.vendor }, vendor.vendor === 'zai');
 			const models = coalesce(modelIdentifiers.map(identifier => {
 				const metadata = this.languageModelsService.lookupLanguageModel(identifier);
 				if (!metadata) {
 					return undefined;
 				}
-				if (vendor.vendor === 'copilot' && metadata.id === 'auto') {
+				if (vendor.vendor === 'zai' && metadata.id === 'auto') {
 					return undefined;
 				}
 				return {
