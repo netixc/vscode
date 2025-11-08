@@ -77,7 +77,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		_options: vscode.PrepareLanguageModelChatModelOptions,
 		_token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]> {
-		return ZAI_MODELS.map(model => ({
+		return ZAI_MODELS.map((model, index) => ({
 			id: model.id,
 			name: model.name,
 			version: '1.0.0',
@@ -87,7 +87,9 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			capabilities: {
 				toolCalling: true,
 				imageInput: false
-			}
+			},
+			isUserSelectable: true,
+			isDefault: index === 0 // Make GLM-4.6 the default
 		}));
 	}
 
