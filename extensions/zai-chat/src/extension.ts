@@ -266,7 +266,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposable);
 
 	// Register chat participant
-	const participant = vscode.chat.createChatParticipant('zai.chat', async (request, context, response, token) => {
+	const participant = vscode.chat.createChatParticipant('zai.chat', async (request, _context, response, token) => {
 		// Simple pass-through participant that uses the language model
 		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
 
