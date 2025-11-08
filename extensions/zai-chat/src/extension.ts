@@ -111,7 +111,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			role: msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' :
 				  msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'system',
 			content: typeof msg.content === 'string' ? msg.content :
-					 msg.content.map(part => {
+					 msg.content.map((part: vscode.LanguageModelChatMessagePart) => {
 						 if (part instanceof vscode.LanguageModelTextPart) {
 							 return part.value;
 						 }
@@ -167,7 +167,7 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		// Rough token estimation (1 token ≈ 4 characters for English)
 		const content = typeof text === 'string' ? text :
 						typeof text.content === 'string' ? text.content :
-						text.content.map(part => {
+						text.content.map((part: vscode.LanguageModelChatMessagePart) => {
 							if (part instanceof vscode.LanguageModelTextPart) {
 								return part.value;
 							}
