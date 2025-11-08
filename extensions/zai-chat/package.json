@@ -60,8 +60,9 @@
     }
   },
   "scripts": {
-    "compile": "node ./node_modules/vscode/bin/compile -watch -p ./",
-    "vscode:prepublish": "node ../../node_modules/gulp/bin/gulp.js --gulpfile ../../build/gulpfile.extensions.js compile-extension:zai-chat ./tsconfig.json"
+    "compile": "npx tsc -p ./",
+    "watch": "npx tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
     "@types/node": "22.x"
