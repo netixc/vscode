@@ -70,10 +70,9 @@ interface OpenAIStreamChunk {
 }
 
 class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
-	private config: vscode.WorkspaceConfiguration;
 
 	constructor() {
-		this.config = vscode.workspace.getConfiguration('zai');
+		// No need to cache config - get fresh each time
 	}
 
 	async provideLanguageModelChatInformation(
@@ -103,10 +102,12 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
-		const apiKey = this.config.get<string>('apiKey');
-		const baseUrl = this.config.get<string>('baseUrl', 'https://api.z.ai/api/coding/paas/v4/');
-		const timeout = this.config.get<number>('timeout', 30000);
-		const thinkingEnabled = this.config.get<boolean>('thinking.enabled', false);
+		// Get fresh config each time to pick up setting changes
+		const config = vscode.workspace.getConfiguration('zai');
+		const apiKey = config.get<string>('apiKey');
+		const baseUrl = config.get<string>('baseUrl', 'https://api.z.ai/api/coding/paas/v4/');
+		const timeout = config.get<number>('timeout', 30000);
+		const thinkingEnabled = config.get<boolean>('thinking.enabled', false);
 
 		if (!apiKey) {
 			throw new Error('Z.AI API key not configured. Please set zai.apiKey in settings.');
