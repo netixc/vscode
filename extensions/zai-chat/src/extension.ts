@@ -164,29 +164,49 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 			const toolResultParts: Array<{ callId: string; content: string }> = [];
 			let textContent = '';
 
+			// Helper to check if part is a tool call
+			function isToolCallPart(p: unknown): p is { callId: string; name: string; input: object } {
+				if (typeof p !== 'object' || p === null) {
+					return false;
+				}
+				const candidate = p as Record<string, unknown>;
+				return typeof candidate.callId === 'string' &&
+					typeof candidate.name === 'string' &&
+					typeof candidate.input === 'object' &&
+					candidate.input !== null;
+			}
+
+			// Helper to check if part is a tool result
+			function isToolResultPart(p: unknown): p is { callId: string; content: unknown[] } {
+				if (typeof p !== 'object' || p === null) {
+					return false;
+				}
+				const candidate = p as Record<string, unknown>;
+				return typeof candidate.callId === 'string' &&
+					Array.isArray(candidate.content);
+			}
+
 			for (const part of msg.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					textContent += part.value;
-				} else if (typeof part === 'object' && part !== null && 'callId' in part && 'name' in part && 'input' in part) {
+				} else if (isToolCallPart(part)) {
 					// Tool call part
-					const toolCallPart = part as { callId: string; name: string; input: object };
 					toolCallParts.push({
-						id: toolCallPart.callId,
+						id: part.callId,
 						type: 'function',
 						function: {
-							name: toolCallPart.name,
-							arguments: JSON.stringify(toolCallPart.input)
+							name: part.name,
+							arguments: JSON.stringify(part.input)
 						}
 					});
-				} else if (typeof part === 'object' && part !== null && 'callId' in part && 'content' in part) {
+				} else if (isToolResultPart(part)) {
 					// Tool result part
-					const toolResultPart = part as { callId: string; content: unknown[] };
-					const resultText = toolResultPart.content
+					const resultText = part.content
 						.filter(c => c instanceof vscode.LanguageModelTextPart)
 						.map(c => (c as vscode.LanguageModelTextPart).value)
 						.join('');
 					toolResultParts.push({
-						callId: toolResultPart.callId,
+						callId: part.callId,
 						content: resultText
 					});
 				}
@@ -414,17 +434,89 @@ class ZAILanguageModelProvider implements vscode.LanguageModelChatProvider {
 	}
 }
 
+// Session item provider that tracks and lists Z.AI sessions
+class ZAISessionItemProvider implements vscode.ChatSessionItemProvider {
+	private readonly _onDidChangeChatSessionItems = new vscode.EventEmitter<void>();
+	readonly onDidChangeChatSessionItems = this._onDidChangeChatSessionItems.event;
+
+	private readonly _onDidCommitChatSessionItem = new vscode.EventEmitter<{
+		original: vscode.ChatSessionItem;
+		modified: vscode.ChatSessionItem;
+	}>();
+	readonly onDidCommitChatSessionItem = this._onDidCommitChatSessionItem.event;
+
+	private sessions = new Map<string, vscode.ChatSessionItem>();
+
+	constructor() {
+		// No automatic tracking needed - sessions are registered explicitly
+	}
+
+	// Called by content provider when a session is created
+	registerSession(uri: vscode.Uri, label?: string): void {
+		const key = uri.toString();
+		if (!this.sessions.has(key)) {
+			console.log('[Z.AI] Registering new session:', key);
+			this.sessions.set(key, {
+				resource: uri,
+				label: label || 'Z.AI Session',
+				iconPath: new vscode.ThemeIcon('sparkle'),
+				status: vscode.ChatSessionStatus.InProgress,
+				timing: {
+					startTime: Date.now()
+				}
+			});
+			this._onDidChangeChatSessionItems.fire();
+		}
+	}
+
+	// Update session status
+	updateSessionStatus(uri: vscode.Uri, status: vscode.ChatSessionStatus): void {
+		const key = uri.toString();
+		const session = this.sessions.get(key);
+		if (session) {
+			console.log('[Z.AI] Updating session status:', key, 'to', vscode.ChatSessionStatus[status]);
+			session.status = status;
+			if (status === vscode.ChatSessionStatus.Completed || status === vscode.ChatSessionStatus.Failed) {
+				if (session.timing) {
+					session.timing.endTime = Date.now();
+				}
+			}
+			this._onDidChangeChatSessionItems.fire();
+		}
+	}
+
+	// Called when a session is closed
+	unregisterSession(uri: vscode.Uri): void {
+		const key = uri.toString();
+		if (this.sessions.has(key)) {
+			console.log('[Z.AI] Unregistering session:', key);
+			this.sessions.delete(key);
+			this._onDidChangeChatSessionItems.fire();
+		}
+	}
+
+	async provideChatSessionItems(_token: vscode.CancellationToken): Promise<vscode.ChatSessionItem[]> {
+		console.log('[Z.AI] provideChatSessionItems called, returning', this.sessions.size, 'sessions');
+		return Array.from(this.sessions.values());
+	}
+}
+
 export function activate(context: vscode.ExtensionContext) {
 	const provider = new ZAILanguageModelProvider();
 
 	const disposable = vscode.lm.registerLanguageModelChatProvider('zai', provider);
 	context.subscriptions.push(disposable);
 
+	// Register the session item provider (tracks list of sessions)
+	const sessionItemProvider = new ZAISessionItemProvider();
+
 	// Register chat session content provider for zai-session:// URIs
 	// The chatSessions contribution automatically creates the agent and command
 	const sessionProvider: vscode.ChatSessionContentProvider = {
 		provideChatSessionContent: async (resource: vscode.Uri, _token: vscode.CancellationToken): Promise<vscode.ChatSession> => {
 			console.log('[Z.AI] provideChatSessionContent called for:', resource.toString());
+			// Register this session with the item provider
+			sessionItemProvider.registerSession(resource);
 			// Return a session with a request handler
 			return {
 				history: [],
@@ -434,13 +526,25 @@ export function activate(context: vscode.ExtensionContext) {
 	};
 
 	// Shared chat request handler for all sessions
-	async function handleChatRequest(request: vscode.ChatRequest, _context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) {
+	async function handleChatRequest(request: vscode.ChatRequest, context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) {
 		console.log('[Z.AI] handleChatRequest called with prompt:', request.prompt);
+
+		// Get session URI from context to track status
+		const sessionUri = context.chatSessionContext?.chatSessionItem.resource;
+
+		// Mark session as in progress
+		if (sessionUri) {
+			sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.InProgress);
+		}
+
 		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
 		console.log('[Z.AI] Found models:', models.length);
 
 		if (models.length === 0) {
 			response.markdown('No Z.AI models available. Please check your API key configuration.');
+			if (sessionUri) {
+				sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed);
+			}
 			return;
 		}
 
@@ -518,24 +622,40 @@ export function activate(context: vscode.ExtensionContext) {
 				messages.push(vscode.LanguageModelChatMessage.User(toolResults));
 			}
 
+			// Mark session as completed
+			if (sessionUri) {
+				sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Completed);
+			}
+
 		} catch (error) {
 			console.error('[Z.AI] Error in handleChatRequest:', error);
 			response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
+
+			// Mark session as failed
+			if (sessionUri) {
+				sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed);
+			}
 		}
 	}
 
 	console.log('[Z.AI] Extension activated');
 
 	// Create the chat participant that matches our chatParticipants and chatSessions declarations
-	const participant = vscode.chat.createChatParticipant('zai-session', async (request, _context, response, token) => {
+	const participant = vscode.chat.createChatParticipant('zai-session', async (request, context, response, token) => {
 		console.log('[Z.AI] Participant handler called (should use session provider instead)');
 		// Delegate to the shared handler
-		await handleChatRequest(request, _context, response, token);
+		await handleChatRequest(request, context, response, token);
 		return {};
 	});
 	context.subscriptions.push(participant);
 
-	// Register the session content provider
+	// Register the session item provider (created earlier)
+	console.log('[Z.AI] Registering session item provider');
+	const sessionItemDisposable = vscode.chat.registerChatSessionItemProvider('zai-session', sessionItemProvider);
+	context.subscriptions.push(sessionItemDisposable);
+	console.log('[Z.AI] Session item provider registered');
+
+	// Register the session content provider (provides content for each session)
 	console.log('[Z.AI] Registering session content provider');
 	const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
 	context.subscriptions.push(sessionDisposable);
