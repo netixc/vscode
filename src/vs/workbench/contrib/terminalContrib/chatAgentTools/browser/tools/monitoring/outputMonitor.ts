@@ -478,7 +478,8 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 			return undefined;
 		}
 
-		const models = await this._languageModelsService.selectLanguageModels({ vendor: 'copilot', family: model.replaceAll('copilot/', '') });
+		// Try to use Z.AI model - model ID is the full identifier (e.g., 'glm-4.6')
+		const models = await this._languageModelsService.selectLanguageModels({ vendor: 'zai', id: model });
 		if (!models.length) {
 			return undefined;
 		}
@@ -676,11 +677,12 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 	}
 
 	private async _getLanguageModel(): Promise<string | undefined> {
-		let models = await this._languageModelsService.selectLanguageModels({ vendor: 'copilot', id: 'copilot-fast' });
+		// Try Z.AI Air model first (fastest)
+		let models = await this._languageModelsService.selectLanguageModels({ vendor: 'zai', id: 'glm-4.5-Air' });
 
-		// Fallback to gpt-4o-mini if copilot-fast is not available for backwards compatibility
+		// Fallback to Z.AI standard model if Air not available
 		if (!models.length) {
-			models = await this._languageModelsService.selectLanguageModels({ vendor: 'copilot', family: 'gpt-4o-mini' });
+			models = await this._languageModelsService.selectLanguageModels({ vendor: 'zai' });
 		}
 
 		return models.length ? models[0] : undefined;

@@ -7,7 +7,8 @@
   "enabledApiProposals": [
     "chatProvider",
     "languageModelCapabilities",
-    "chatSessionsProvider"
+    "chatSessionsProvider",
+    "chatParticipantAdditions"
   ],
   "private": true,
   "activationEvents": [],
