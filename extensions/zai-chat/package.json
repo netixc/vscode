@@ -8,7 +8,8 @@
     "chatProvider",
     "languageModelCapabilities",
     "chatSessionsProvider",
-    "chatParticipantAdditions"
+    "chatParticipantAdditions",
+    "defaultChatParticipant"
   ],
   "private": true,
   "activationEvents": [],
