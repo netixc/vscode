@@ -213,5 +213,10 @@
 	],
 	"azureMcp.serverMode": "all",
 	"azureMcp.readOnly": true,
-	"chat.tools.terminal.outputLocation": "none"
+	"chat.tools.terminal.outputLocation": "none",
+	// --- Layout ---
+	"workbench.sideBar.location": "left",
+	"workbench.panel.defaultLocation": "bottom",
+	"workbench.secondarySideBar.defaultVisibility": "visible",
+	"workbench.activityBar.location": "default"
 }
