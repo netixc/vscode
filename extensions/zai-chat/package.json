@@ -8,8 +8,7 @@
     "chatProvider",
     "languageModelCapabilities",
     "chatSessionsProvider",
-    "chatParticipantAdditions",
-    "defaultChatParticipant"
+    "chatParticipantAdditions"
   ],
   "private": true,
   "activationEvents": [],
@@ -22,17 +21,6 @@
       {
         "vendor": "zai",
         "displayName": "Z.AI"
-      }
-    ],
-    "chatParticipants": [
-      {
-        "id": "zai-session",
-        "name": "zai",
-        "fullName": "Z.AI",
-        "description": "AI assistant powered by Z.AI GLM models",
-        "isDefault": false,
-        "isSticky": false,
-        "modes": ["ask", "edit", "agent"]
       }
     ],
     "chatSessions": [
