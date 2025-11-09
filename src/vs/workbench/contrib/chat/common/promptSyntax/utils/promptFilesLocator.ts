@@ -11,7 +11,7 @@ import { getPromptFileLocationsConfigKey, PromptsConfig } from '../config/config
 import { basename, dirname, isEqualOrParent, joinPath } from '../../../../../../base/common/resources.js';
 import { IWorkspaceContextService } from '../../../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
-import { COPILOT_CUSTOM_INSTRUCTIONS_FILENAME, AGENTS_SOURCE_FOLDER, getPromptFileExtension, getPromptFileType, LEGACY_MODE_FILE_EXTENSION, getCleanPromptName, AGENT_FILE_EXTENSION } from '../config/promptFileLocations.js';
+import { COPILOT_CUSTOM_INSTRUCTIONS_FILENAME, ZAI_CUSTOM_INSTRUCTIONS_FILENAME, AGENTS_SOURCE_FOLDER, getPromptFileExtension, getPromptFileType, LEGACY_MODE_FILE_EXTENSION, getCleanPromptName, AGENT_FILE_EXTENSION } from '../config/promptFileLocations.js';
 import { PromptsType } from '../promptTypes.js';
 import { IWorkbenchEnvironmentService } from '../../../../../services/environment/common/environmentService.js';
 import { Schemas } from '../../../../../../base/common/network.js';
@@ -286,9 +286,14 @@ export class PromptFilesLocator extends Disposable {
 		const result: URI[] = [];
 		const { folders } = this.workspaceService.getWorkspace();
 		for (const folder of folders) {
-			const file = joinPath(folder.uri, `.github/` + COPILOT_CUSTOM_INSTRUCTIONS_FILENAME);
-			if (await this.fileService.exists(file)) {
-				result.push(file);
+			// Check for zai-instructions.md first (preferred for Z.AI), then fall back to copilot-instructions.md
+			const zaiFile = joinPath(folder.uri, `.github/` + ZAI_CUSTOM_INSTRUCTIONS_FILENAME);
+			const copilotFile = joinPath(folder.uri, `.github/` + COPILOT_CUSTOM_INSTRUCTIONS_FILENAME);
+
+			if (await this.fileService.exists(zaiFile)) {
+				result.push(zaiFile);
+			} else if (await this.fileService.exists(copilotFile)) {
+				result.push(copilotFile);
 			}
 		}
 		return result;

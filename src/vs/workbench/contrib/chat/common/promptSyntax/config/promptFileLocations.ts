@@ -32,6 +32,11 @@ export const AGENT_FILE_EXTENSION = '.agent.md';
  */
 export const COPILOT_CUSTOM_INSTRUCTIONS_FILENAME = 'copilot-instructions.md';
 
+/**
+ * Z.AI custom instructions file name.
+ */
+export const ZAI_CUSTOM_INSTRUCTIONS_FILENAME = 'zai-instructions.md';
+
 
 /**
  * Default reusable prompt files source folder.
@@ -71,7 +76,7 @@ export function getPromptFileType(fileUri: URI): PromptsType | undefined {
 		return PromptsType.prompt;
 	}
 
-	if (filename.endsWith(INSTRUCTION_FILE_EXTENSION) || (filename === COPILOT_CUSTOM_INSTRUCTIONS_FILENAME)) {
+	if (filename.endsWith(INSTRUCTION_FILE_EXTENSION) || (filename === COPILOT_CUSTOM_INSTRUCTIONS_FILENAME) || (filename === ZAI_CUSTOM_INSTRUCTIONS_FILENAME)) {
 		return PromptsType.instructions;
 	}
 
@@ -140,7 +145,7 @@ export function getCleanPromptName(fileUri: URI): string {
 		}
 	}
 
-	if (fileName === COPILOT_CUSTOM_INSTRUCTIONS_FILENAME) {
+	if (fileName === COPILOT_CUSTOM_INSTRUCTIONS_FILENAME || fileName === ZAI_CUSTOM_INSTRUCTIONS_FILENAME) {
 		return basename(fileUri.path, '.md');
 	}
 
