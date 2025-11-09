@@ -43,6 +43,40 @@
         "icon": "$(sparkle)"
       }
     ],
+    "commands": [
+      {
+        "command": "zai.deleteSession",
+        "title": "Delete Session",
+        "category": "Z.AI",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "zai.deleteSessionPicker",
+        "title": "Delete a Session...",
+        "category": "Z.AI"
+      },
+      {
+        "command": "zai.setApiKey",
+        "title": "Set API Key",
+        "category": "Z.AI"
+      }
+    ],
+    "menus": {
+      "chat/session/context": [
+        {
+          "command": "zai.deleteSession",
+          "when": "chatSessionType == zai-session",
+          "group": "inline"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "zai.deleteSession",
+          "when": "viewItem =~ /chatSessionItem/ && chatSessionType == zai-session",
+          "group": "inline"
+        }
+      ]
+    },
     "configuration": {
       "type": "object",
       "title": "Z.AI Configuration",

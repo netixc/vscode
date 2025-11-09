@@ -460,7 +460,11 @@ class ZAISessionItemProvider implements vscode.ChatSessionItemProvider {
 				resource: uri,
 				label: label || 'Z.AI Session',
 				iconPath: new vscode.ThemeIcon('sparkle'),
-				status: vscode.ChatSessionStatus.InProgress,
+				// Don't set status to InProgress yet - wait until actual request starts
+				status: undefined,
+				// Set non-empty description to prevent "Finished" from appearing
+				// Using a space so it's truthy but appears empty
+				description: ' ',
 				timing: {
 					startTime: Date.now()
 				}
@@ -469,13 +473,38 @@ class ZAISessionItemProvider implements vscode.ChatSessionItemProvider {
 		}
 	}
 
+	// Update session label (name it based on the prompt)
+	updateSessionLabel(uri: vscode.Uri, label: string): void {
+		const key = uri.toString();
+		const session = this.sessions.get(key);
+		if (session) {
+			console.log('[Z.AI] Updating session label:', key, 'to', label);
+			// Truncate long labels to keep them readable (like Cursor does)
+			session.label = label.length > 60 ? label.substring(0, 60) + '...' : label;
+			// Clear the space description now that we have a real name and will have status
+			session.description = undefined;
+			this._onDidChangeChatSessionItems.fire();
+		}
+	}
+
 	// Update session status
-	updateSessionStatus(uri: vscode.Uri, status: vscode.ChatSessionStatus): void {
+	updateSessionStatus(uri: vscode.Uri, status: vscode.ChatSessionStatus, description?: string): void {
 		const key = uri.toString();
 		const session = this.sessions.get(key);
 		if (session) {
 			console.log('[Z.AI] Updating session status:', key, 'to', vscode.ChatSessionStatus[status]);
 			session.status = status;
+
+			// Set appropriate description based on status
+			if (description !== undefined) {
+				// Use custom description if provided (e.g., "Interrupted")
+				session.description = description;
+			} else {
+				// Clear description to let VS Code's built-in status text show through
+				// This will show "Working...", "Finished", etc. automatically
+				session.description = undefined;
+			}
+
 			if (status === vscode.ChatSessionStatus.Completed || status === vscode.ChatSessionStatus.Failed) {
 				if (session.timing) {
 					session.timing.endTime = Date.now();
@@ -498,6 +527,11 @@ class ZAISessionItemProvider implements vscode.ChatSessionItemProvider {
 	async provideChatSessionItems(_token: vscode.CancellationToken): Promise<vscode.ChatSessionItem[]> {
 		console.log('[Z.AI] provideChatSessionItems called, returning', this.sessions.size, 'sessions');
 		return Array.from(this.sessions.values());
+	}
+
+	// Get all sessions for deletion command
+	getSessions(): Map<string, vscode.ChatSessionItem> {
+		return this.sessions;
 	}
 }
 
@@ -531,6 +565,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Get session URI from context to track status
 		const sessionUri = context.chatSessionContext?.chatSessionItem.resource;
+
+		// Update session name based on the prompt (like Cursor does)
+		if (sessionUri && request.prompt) {
+			sessionItemProvider.updateSessionLabel(sessionUri, request.prompt);
+		}
 
 		// Mark session as in progress
 		if (sessionUri) {
@@ -622,18 +661,43 @@ export function activate(context: vscode.ExtensionContext) {
 				messages.push(vscode.LanguageModelChatMessage.User(toolResults));
 			}
 
-			// Mark session as completed
-			if (sessionUri) {
-				sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Completed);
+			// Check if we exited due to cancellation
+			if (token.isCancellationRequested) {
+				console.log('[Z.AI] Request cancelled by user');
+				// Mark as failed with description indicating interruption
+				if (sessionUri) {
+					sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed, 'Interrupted');
+				}
+			} else {
+				// Mark session as completed
+				if (sessionUri) {
+					sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Completed);
+				}
 			}
 
 		} catch (error) {
-			console.error('[Z.AI] Error in handleChatRequest:', error);
-			response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			// Check if error is due to cancellation
+			const isCancellation = error instanceof vscode.CancellationError ||
+				(error instanceof Error && (
+					error.message.includes('cancelled') ||
+					error.message.includes('canceled') ||
+					error.message.includes('Response stream has been closed')
+				));
 
-			// Mark session as failed
-			if (sessionUri) {
-				sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed);
+			if (isCancellation) {
+				console.log('[Z.AI] Request was cancelled or interrupted');
+				// Don't show error message for user-initiated cancellation
+				// Mark as failed with description indicating interruption
+				if (sessionUri) {
+					sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed, 'Interrupted');
+				}
+			} else {
+				console.error('[Z.AI] Error in handleChatRequest:', error);
+				response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
+				// Mark session as failed
+				if (sessionUri) {
+					sessionItemProvider.updateSessionStatus(sessionUri, vscode.ChatSessionStatus.Failed);
+				}
 			}
 		}
 	}
@@ -660,6 +724,107 @@ export function activate(context: vscode.ExtensionContext) {
 	const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
 	context.subscriptions.push(sessionDisposable);
 	console.log('[Z.AI] Session content provider registered');
+
+	// Register a command to delete a session
+	const deleteSessionCommand = vscode.commands.registerCommand('zai.deleteSession', async (arg?: vscode.Uri | vscode.ChatSessionItem) => {
+		// Extract URI from argument - could be URI directly or session item
+		let sessionUri: vscode.Uri | undefined;
+
+		if (arg instanceof vscode.Uri) {
+			sessionUri = arg;
+		} else if (arg && typeof arg === 'object') {
+			// It's a session item - check if it has resource property
+			const potentialSessionItem = arg as vscode.ChatSessionItem;
+			if (potentialSessionItem.resource) {
+				sessionUri = potentialSessionItem.resource;
+			}
+		}
+
+		if (!sessionUri) {
+			console.log('[Z.AI] deleteSession called without valid sessionUri');
+			return;
+		}
+
+		console.log('[Z.AI] Deleting session:', sessionUri.toString());
+
+		// Confirm deletion
+		const confirmed = await vscode.window.showWarningMessage(
+			'Are you sure you want to delete this session?',
+			{ modal: true },
+			'Delete'
+		);
+
+		if (confirmed === 'Delete') {
+			sessionItemProvider.unregisterSession(sessionUri);
+			vscode.window.showInformationMessage('Session deleted successfully');
+		}
+	});
+
+	context.subscriptions.push(deleteSessionCommand);
+
+	// Register a command to delete sessions via picker (for when context menu doesn't work)
+	const deleteSessionPickerCommand = vscode.commands.registerCommand('zai.deleteSessionPicker', async () => {
+		const sessions = sessionItemProvider.getSessions();
+
+		if (sessions.size === 0) {
+			vscode.window.showInformationMessage('No Z.AI sessions to delete');
+			return;
+		}
+
+		// Helper function to format time ago
+		function formatTimeAgo(timestamp: number): string {
+			const seconds = Math.floor((Date.now() - timestamp) / 1000);
+			if (seconds < 60) {
+				return 'just now';
+			}
+			const minutes = Math.floor(seconds / 60);
+			if (minutes < 60) {
+				return `${minutes}m ago`;
+			}
+			const hours = Math.floor(minutes / 60);
+			if (hours < 24) {
+				return `${hours}h ago`;
+			}
+			const days = Math.floor(hours / 24);
+			return `${days}d ago`;
+		}
+
+		// Create quick pick items with better information
+		const items = Array.from(sessions.values()).map(session => {
+			const timeAgo = session.timing?.startTime ? formatTimeAgo(session.timing.startTime) : '';
+			const statusText = session.status === vscode.ChatSessionStatus.InProgress ? '$(loading~spin) Working' :
+				session.status === vscode.ChatSessionStatus.Failed ? '$(error) Failed' :
+				session.status === vscode.ChatSessionStatus.Completed ? '$(check) Completed' : '';
+
+			return {
+				label: `$(sparkle) ${session.label}`,
+				description: `${timeAgo}${statusText ? ' • ' + statusText : ''}`,
+				detail: session.description?.toString() || undefined,
+				session: session
+			};
+		});
+
+		const selected = await vscode.window.showQuickPick(items, {
+			placeHolder: 'Select a Z.AI session to delete',
+			matchOnDescription: true,
+			matchOnDetail: true
+		});
+
+		if (selected) {
+			const confirmed = await vscode.window.showWarningMessage(
+				`Delete session "${selected.session.label}"?`,
+				{ modal: true },
+				'Delete'
+			);
+
+			if (confirmed === 'Delete') {
+				sessionItemProvider.unregisterSession(selected.session.resource);
+				vscode.window.showInformationMessage('Session deleted successfully');
+			}
+		}
+	});
+
+	context.subscriptions.push(deleteSessionPickerCommand);
 
 	// Register a command to set API key
 	const setApiKeyCommand = vscode.commands.registerCommand('zai.setApiKey', async () => {
