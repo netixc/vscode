@@ -7,7 +7,7 @@
   "enabledApiProposals": [
     "chatProvider",
     "languageModelCapabilities",
-    "defaultChatParticipant"
+    "chatSessionsProvider"
   ],
   "private": true,
   "activationEvents": [],
@@ -22,15 +22,13 @@
         "displayName": "Z.AI"
       }
     ],
-    "chatParticipants": [
+    "chatSessions": [
       {
-        "id": "zai.chat",
-        "name": "chat",
-        "fullName": "Z.AI Chat",
+        "type": "zai-session",
+        "name": "zai",
+        "displayName": "Z.AI",
         "description": "AI assistant powered by Z.AI GLM models",
-        "isDefault": true,
-        "isSticky": false,
-        "modes": ["ask", "edit", "agent"]
+        "icon": "$(sparkle)"
       }
     ],
     "configuration": {

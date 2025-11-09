@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+/// <reference path="../../../src/vscode-dts/vscode.proposed.chatSessionsProvider.d.ts" />
+
 import * as vscode from 'vscode';
 
 interface ZAIModel {
@@ -418,13 +420,25 @@ export function activate(context: vscode.ExtensionContext) {
 	const disposable = vscode.lm.registerLanguageModelChatProvider('zai', provider);
 	context.subscriptions.push(disposable);
 
-	// Register chat participant with tool support
-	const participant = vscode.chat.createChatParticipant('zai.chat', async (request, _context, response, token) => {
+	// Register chat session content provider for zai-session:// URIs
+	// The chatSessions contribution automatically creates the agent and command
+	const sessionProvider: vscode.ChatSessionContentProvider = {
+		provideChatSessionContent: async (_resource: vscode.Uri, _token: vscode.CancellationToken): Promise<vscode.ChatSession> => {
+			// Return a session with a request handler
+			return {
+				history: [],
+				requestHandler: handleChatRequest
+			};
+		}
+	};
+
+	// Shared chat request handler for all sessions
+	async function handleChatRequest(request: vscode.ChatRequest, _context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) {
 		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
 
 		if (models.length === 0) {
 			response.markdown('No Z.AI models available. Please check your API key configuration.');
-			return {};
+			return;
 		}
 
 		const model = models[0];
@@ -439,8 +453,8 @@ export function activate(context: vscode.ExtensionContext) {
 			inputSchema: tool.inputSchema ?? {}
 		}));
 
+		// Tool calling loop - continue until the model stops requesting tools
 		try {
-			// Tool calling loop - continue until the model stops requesting tools
 			let turnCount = 0;
 			while (!token.isCancellationRequested) {
 				turnCount++;
@@ -501,14 +515,22 @@ export function activate(context: vscode.ExtensionContext) {
 				messages.push(vscode.LanguageModelChatMessage.User(toolResults));
 			}
 
-			return {};
 		} catch (error) {
 			response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
-			return {};
 		}
-	});
+	}
 
+	// Create a minimal chat participant for the session provider registration
+	// The actual agent is created by the chatSessions contribution
+	const participant = vscode.chat.createChatParticipant('zai-session', async (_request, _context, _response, _token) => {
+		// This handler won't be called - the session provider's handler will be used instead
+		return {};
+	});
 	context.subscriptions.push(participant);
+
+	// Register the session content provider
+	const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
+	context.subscriptions.push(sessionDisposable);
 
 	// Register a command to set API key
 	const setApiKeyCommand = vscode.commands.registerCommand('zai.setApiKey', async () => {
