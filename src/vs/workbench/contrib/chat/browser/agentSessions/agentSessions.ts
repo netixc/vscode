@@ -10,6 +10,6 @@ export const AGENT_SESSIONS_VIEW_ID = 'workbench.view.agentSessions';
 
 export enum AgentSessionProviders {
 	Local = localChatSessionType,
-	Background = 'copilotcli',
+	Background = 'zai.chat',
 	Cloud = 'copilot-cloud-agent',
 }
