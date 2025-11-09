@@ -423,7 +423,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Register chat session content provider for zai-session:// URIs
 	// The chatSessions contribution automatically creates the agent and command
 	const sessionProvider: vscode.ChatSessionContentProvider = {
-		provideChatSessionContent: async (_resource: vscode.Uri, _token: vscode.CancellationToken): Promise<vscode.ChatSession> => {
+		provideChatSessionContent: async (resource: vscode.Uri, _token: vscode.CancellationToken): Promise<vscode.ChatSession> => {
+			console.log('[Z.AI] provideChatSessionContent called for:', resource.toString());
 			// Return a session with a request handler
 			return {
 				history: [],
@@ -434,7 +435,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Shared chat request handler for all sessions
 	async function handleChatRequest(request: vscode.ChatRequest, _context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) {
+		console.log('[Z.AI] handleChatRequest called with prompt:', request.prompt);
 		const models = await vscode.lm.selectChatModels({ vendor: 'zai' });
+		console.log('[Z.AI] Found models:', models.length);
 
 		if (models.length === 0) {
 			response.markdown('No Z.AI models available. Please check your API key configuration.');
@@ -516,21 +519,35 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 		} catch (error) {
+			console.error('[Z.AI] Error in handleChatRequest:', error);
 			response.markdown(`Error: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
-	// Create a minimal chat participant for the session provider registration
-	// The actual agent is created by the chatSessions contribution
-	const participant = vscode.chat.createChatParticipant('zai-session', async (_request, _context, _response, _token) => {
-		// This handler won't be called - the session provider's handler will be used instead
-		return {};
-	});
-	context.subscriptions.push(participant);
+	console.log('[Z.AI] Extension activated');
 
-	// Register the session content provider
-	const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
-	context.subscriptions.push(sessionDisposable);
+	// Wait a bit for chatSessions contribution to create the agent
+	// Then register our content provider
+	setTimeout(() => {
+		console.log('[Z.AI] Registering session content provider');
+		try {
+			// Create a minimal chat participant for the session provider registration
+			// Note: chatSessions contribution creates the main agent, this is just for the API
+			const participant = vscode.chat.createChatParticipant('zai-session-provider', async (_request, _context, response, _token) => {
+				console.log('[Z.AI] Fallback participant handler called - this should not happen');
+				response.markdown('Error: Using fallback handler. Session provider may not be working correctly.');
+				return {};
+			});
+			context.subscriptions.push(participant);
+
+			// Register the session content provider
+			const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
+			context.subscriptions.push(sessionDisposable);
+			console.log('[Z.AI] Session content provider registered');
+		} catch (error) {
+			console.error('[Z.AI] Failed to register session content provider:', error);
+		}
+	}, 1000);
 
 	// Register a command to set API key
 	const setApiKeyCommand = vscode.commands.registerCommand('zai.setApiKey', async () => {
