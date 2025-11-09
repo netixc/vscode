@@ -526,28 +526,20 @@ export function activate(context: vscode.ExtensionContext) {
 
 	console.log('[Z.AI] Extension activated');
 
-	// Wait a bit for chatSessions contribution to create the agent
-	// Then register our content provider
-	setTimeout(() => {
-		console.log('[Z.AI] Registering session content provider');
-		try {
-			// Create a minimal chat participant for the session provider registration
-			// Note: chatSessions contribution creates the main agent, this is just for the API
-			const participant = vscode.chat.createChatParticipant('zai-session-provider', async (_request, _context, response, _token) => {
-				console.log('[Z.AI] Fallback participant handler called - this should not happen');
-				response.markdown('Error: Using fallback handler. Session provider may not be working correctly.');
-				return {};
-			});
-			context.subscriptions.push(participant);
+	// Create the chat participant that matches our chatParticipants and chatSessions declarations
+	const participant = vscode.chat.createChatParticipant('zai-session', async (request, _context, response, token) => {
+		console.log('[Z.AI] Participant handler called (should use session provider instead)');
+		// Delegate to the shared handler
+		await handleChatRequest(request, _context, response, token);
+		return {};
+	});
+	context.subscriptions.push(participant);
 
-			// Register the session content provider
-			const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
-			context.subscriptions.push(sessionDisposable);
-			console.log('[Z.AI] Session content provider registered');
-		} catch (error) {
-			console.error('[Z.AI] Failed to register session content provider:', error);
-		}
-	}, 1000);
+	// Register the session content provider
+	console.log('[Z.AI] Registering session content provider');
+	const sessionDisposable = vscode.chat.registerChatSessionContentProvider('zai-session', sessionProvider, participant);
+	context.subscriptions.push(sessionDisposable);
+	console.log('[Z.AI] Session content provider registered');
 
 	// Register a command to set API key
 	const setApiKeyCommand = vscode.commands.registerCommand('zai.setApiKey', async () => {
